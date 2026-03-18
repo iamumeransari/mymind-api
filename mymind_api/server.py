@@ -70,6 +70,11 @@ def search_mymind(
        get_card_image() unless you need to visually inspect the image —
        that loads bytes and burns tokens.
 
+    7. ALWAYS STORE CARD IDs. When writing mymind cards to Notion, Obsidian,
+       or anywhere else, always include the mymind card ID (the "id" field).
+       This enables direct lookups later via get_card() or get_cards_by_ids()
+       instead of having to re-search by title.
+
     Args:
         query: Text search across titles, descriptions, and content.
         tag: Filter by tag name(s). Case-insensitive. Comma-separated for multiple
@@ -154,13 +159,34 @@ def list_recent_cards(limit: int = 20) -> list:
 
 @mcp.tool
 def get_card(card_id: str) -> dict:
-    """Get full details of a specific card including all metadata.
+    """Get full details of a specific card by ID. Use this when you already have
+    a card ID (e.g. stored in Notion or Obsidian) instead of searching by title.
 
     Args:
         card_id: The card's ID/slug.
     """
     mind = _get_client()
     return mind.get_object(card_id)
+
+
+@mcp.tool
+def get_cards_by_ids(card_ids: List[str]) -> list:
+    """Batch fetch multiple cards by their IDs. Use when you have card IDs stored
+    in Notion, Obsidian, or elsewhere and need to pull their full details without
+    searching. One call instead of N separate get_card calls.
+
+    Args:
+        card_ids: List of card ID/slugs.
+    """
+    mind = _get_client()
+    results = []
+    for card_id in card_ids:
+        try:
+            obj = mind.get_object(card_id)
+            results.append(obj)
+        except Exception:
+            results.append({"card_id": card_id, "error": "not found"})
+    return results
 
 
 @mcp.tool
