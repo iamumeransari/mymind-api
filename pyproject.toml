@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mymind-api"
+version = "0.1.0"
+description = "Unofficial mymind API client, CLI, and MCP server"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.28.0",
+    "playwright>=1.40.0",
+    "fastmcp>=2.0.0",
+]
+
+[project.scripts]
+mymind = "mymind_api.client:main"
+mymind-mcp = "mymind_api.server:main"
+
+[project.urls]
+Homepage = "https://github.com/umeransari/mymind-api"
