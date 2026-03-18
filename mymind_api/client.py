@@ -271,6 +271,48 @@ class MyMind:
         resp = self._request("GET", f"/search?q={query}", headers=self._headers_json())
         return resp.json()
 
+    def filter_cards(
+        self,
+        tag: Optional[str] = None,
+        domain: Optional[str] = None,
+        card_type: Optional[str] = None,
+        text: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Card]:
+        """Filter cards client-side by tag, domain, type, and/or text content.
+
+        All filters are AND-ed. Text matches against title, description, and prose.
+
+        Args:
+            tag: Filter by tag name (case-insensitive).
+            domain: Filter by source domain (e.g. "x.com", "twitter.com").
+            card_type: Filter by card type (e.g. "XPost", "Note", "WebPage").
+            text: Filter by text content in title/description/prose.
+            limit: Max results to return.
+        """
+        cards = self.get_all_cards()
+        results = []
+        tag_lower = tag.lower() if tag else None
+        text_lower = text.lower() if text else None
+        domain_lower = domain.lower() if domain else None
+        type_lower = card_type.lower() if card_type else None
+
+        for c in cards:
+            if tag_lower and not any(t.lower() == tag_lower for t in c.tags):
+                continue
+            if domain_lower and domain_lower not in c.domain.lower() and domain_lower not in c.source_url.lower():
+                continue
+            if type_lower and c.card_type.lower() != type_lower:
+                continue
+            if text_lower:
+                haystack = f"{c.title} {c.description} {c.prose_markdown}".lower()
+                if text_lower not in haystack:
+                    continue
+            results.append(c)
+            if len(results) >= limit:
+                break
+        return results
+
     def get_object(self, card_id: str) -> dict:
         """Get full object metadata (id, title, tags, spaces, notes, timestamps)."""
         resp = self._request("GET", f"/objects/{card_id}", headers=self._headers_json())

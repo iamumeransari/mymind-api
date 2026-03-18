@@ -25,17 +25,79 @@ def _get_client() -> MyMind:
 
 
 @mcp.tool
-def search_mymind(query: str) -> dict:
-    """Full-text search across all mymind cards using mymind's server-side search.
+def search_mymind(
+    query: Optional[str] = None,
+    tag: Optional[str] = None,
+    domain: Optional[str] = None,
+    card_type: Optional[str] = None,
+    limit: int = 50,
+) -> list:
+    """Search and filter mymind cards. Combines server-side text search with client-side
+    tag/domain/type filtering. All provided filters are AND-ed together.
+
+    Always use this tool to find cards. Provide any combination of filters.
 
     Args:
-        query: Search term. Supports wildcards (e.g. "AI*").
-
-    Returns:
-        Search results with card details.
+        query: Text search across titles, descriptions, and content (e.g. "AI", "startup ideas").
+        tag: Filter by tag name (e.g. "design", "AI", "motivation"). Case-insensitive.
+        domain: Filter by source domain (e.g. "x.com", "youtube.com", "github.com").
+        card_type: Filter by type (e.g. "XPost", "Note", "WebPage", "Video", "Image", "Content").
+        limit: Max results (default 50).
     """
     mind = _get_client()
-    return mind.search(query)
+
+    # If we have tag/domain/type filters, use client-side filtering (which also supports text)
+    if tag or domain or card_type:
+        cards = mind.filter_cards(tag=tag, domain=domain, card_type=card_type, text=query, limit=limit)
+        return [
+            {
+                "id": c.slug,
+                "title": c.title,
+                "type": c.card_type,
+                "description": c.description,
+                "tags": c.tags,
+                "source_url": c.source_url,
+                "created": c.created,
+                "modified": c.modified,
+            }
+            for c in cards
+        ]
+
+    # Text-only search: use fast server-side search, then hydrate with card details
+    if query:
+        results = mind.search(query)
+        match_ids = {m["id"] for m in results.get("matches", [])}
+        cards = mind.get_all_cards()
+        matched = [c for c in cards if c.slug in match_ids][:limit]
+        return [
+            {
+                "id": c.slug,
+                "title": c.title,
+                "type": c.card_type,
+                "description": c.description,
+                "tags": c.tags,
+                "source_url": c.source_url,
+                "created": c.created,
+                "modified": c.modified,
+            }
+            for c in matched
+        ]
+
+    # No filters at all — return recent cards
+    cards = mind.get_all_cards()[:limit]
+    return [
+        {
+            "id": c.slug,
+            "title": c.title,
+            "type": c.card_type,
+            "description": c.description,
+            "tags": c.tags,
+            "source_url": c.source_url,
+            "created": c.created,
+            "modified": c.modified,
+        }
+        for c in cards
+    ]
 
 
 @mcp.tool
