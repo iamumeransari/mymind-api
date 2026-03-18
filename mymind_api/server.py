@@ -64,11 +64,11 @@ def search_mymind(
        "found 4 that match." Do NOT backfill with tools, studios, techniques,
        or tangentially related content to hit the number.
 
-    6. IMAGES: Search results do NOT include image URLs (to save tokens during
-       broad searches). Once you've identified the exact cards you need, call
-       get_card_content() or get_card_image_url() to get the image URL for
-       embedding in Notion etc. Do NOT use get_card_image() unless you need
-       the LLM to visually inspect the image.
+    6. IMAGES: image_url is automatically included in results when ≤15 cards
+       are returned (i.e. the search has been narrowed down). Broad searches
+       omit image URLs to save tokens. Use these URLs directly for embedding
+       in Notion, docs, etc. Do NOT use get_card_image() unless you need the
+       LLM to visually inspect the image — that loads bytes into context.
 
     Args:
         query: Text search across titles, descriptions, and content.
@@ -92,19 +92,7 @@ def search_mymind(
     # If we have tag/domain/type filters, use client-side filtering (which also supports text)
     if tags_list or domain or card_type:
         cards = mind.filter_cards(tags=tags_list, domain=domain, card_type=card_type, text=query, limit=limit)
-        return [
-            {
-                "id": c.slug,
-                "title": c.title,
-                "type": c.card_type,
-                "description": c.description,
-                "tags": c.tags,
-                "source_url": c.source_url,
-                "created": c.created,
-                "modified": c.modified,
-            }
-            for c in cards
-        ]
+        return _format_results(cards)
 
     # Text-only search: use fast server-side search, then hydrate with card details
     if query:
@@ -112,24 +100,24 @@ def search_mymind(
         match_ids = {m["id"] for m in results.get("matches", [])}
         cards = mind.get_all_cards()
         matched = [c for c in cards if c.slug in match_ids][:limit]
-        return [
-            {
-                "id": c.slug,
-                "title": c.title,
-                "type": c.card_type,
-                "description": c.description,
-                "tags": c.tags,
-                "source_url": c.source_url,
-                "created": c.created,
-                "modified": c.modified,
-            }
-            for c in matched
-        ]
+        return _format_results(matched)
 
     # No filters at all — return recent cards
     cards = mind.get_all_cards()[:limit]
-    return [
-        {
+    return _format_results(cards)
+
+
+_IMAGE_URL_THRESHOLD = 15
+
+
+def _format_results(cards: list) -> list:
+    """Format card results. Includes image_url automatically when the result
+    set is small enough (≤15 cards) — meaning the search has been narrowed
+    down and image URLs are actionable. Broad searches omit them to save tokens."""
+    include_images = len(cards) <= _IMAGE_URL_THRESHOLD
+    results = []
+    for c in cards:
+        entry = {
             "id": c.slug,
             "title": c.title,
             "type": c.card_type,
@@ -139,8 +127,10 @@ def search_mymind(
             "created": c.created,
             "modified": c.modified,
         }
-        for c in cards
-    ]
+        if include_images and c.image_url:
+            entry["image_url"] = c.image_url
+        results.append(entry)
+    return results
 
 
 @mcp.tool
