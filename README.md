@@ -2,7 +2,9 @@
 
 Unofficial Python API client, CLI, and MCP server for [mymind](https://mymind.com).
 
-mymind has no public API. This reverse-engineers the internal web app endpoints so you can manage your cards, tags, and spaces programmatically.
+Your mymind is full of things that define how you think — the articles that shaped your perspective, the tweets that resonated, the snippets you highlighted, the ideas you saved at 2am. It's the richest, most personal context you have. When you're working with Claude Code or Obsidian, that context is what makes AI actually useful to *you* specifically, not just generically.
+
+mymind doesn't have a public API. So this project reverse-engineers their internal endpoints — giving you a Python client, a CLI, and an MCP server so Claude Code (or any AI tool) can search, read, and manage your mymind.
 
 ## Install
 
@@ -16,14 +18,22 @@ pip install mymind-api
 mymind login
 ```
 
-This opens mymind in your default browser. Sign in with Google or Apple, then:
+This opens mymind in your default browser. Sign in with Google or Apple as usual.
 
-1. Open DevTools → Network tab (`Cmd+Option+I`)
-2. Refresh the page
-3. Click the `cards` request
-4. Copy the request headers and paste into the terminal
+Once you're signed in and can see your cards:
 
-Tokens are stored in your **system keychain** (macOS Keychain / Windows Credential Locker). If they expire, you'll be prompted to re-authenticate.
+1. Open DevTools (`Cmd+Option+I` on Mac, `F12` on Windows)
+2. Go to the **Network** tab
+3. In the Network tab's filter bar at the top, type **`cards`** — this filters out noise so you can spot the right request
+4. Now refresh the page (`Cmd+R` / `Ctrl+R`) — a request called `cards` will appear in the list
+5. Right-click the `cards` request → **Copy as cURL**
+6. Go back to your terminal where `mymind login` is waiting, paste it, and wait 2 seconds
+
+> **Note:** The `cards` request only fires on page load, which is why you need to set up the filter *before* refreshing. If you refresh first, you'll miss it.
+
+> You can also click the `cards` request, copy the raw request headers, and paste those instead — the parser extracts tokens from either format.
+
+Tokens are stored in your **system keychain** (macOS Keychain / Windows Credential Locker), never in plaintext files. If they expire, you'll be prompted to re-authenticate.
 
 ## Python API
 
@@ -36,7 +46,11 @@ mind = MyMind()
 cards = mind.get_all_cards()
 card = mind.get_card_content(card_id)
 obj = mind.get_object(card_id)
+
+# Search & filter
 results = mind.search("startup ideas")
+mind.filter_cards(tag="design", domain="x.com")
+mind.filter_cards(card_type="Snippet", text="quote")
 
 # Create
 mind.create_note("# Hello", title="My Note", tags=["idea"])
@@ -96,11 +110,11 @@ Or Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.j
 }
 ```
 
-### 16 MCP tools
+### MCP tools
 
 | Tool | Description |
 |------|-------------|
-| `search_mymind` | Full-text search across all cards |
+| `search_mymind` | Search and filter cards by text, tag, domain, and/or content type |
 | `list_recent_cards` | List most recently saved cards |
 | `get_card` | Get full card metadata |
 | `get_card_content` | Get card content (prose, notes, tags, source) |
