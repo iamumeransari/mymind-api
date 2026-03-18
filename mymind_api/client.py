@@ -1,31 +1,65 @@
 """
 mymind — unofficial Python API client.
 
-Zero setup: just provide email + password. Tokens are extracted
-automatically via headless browser and refreshed on expiry.
+`mymind login` opens a browser → you sign in with Google/Apple →
+tokens are captured and stored in your system keychain (macOS Keychain,
+Windows Credential Locker, etc). No passwords ever touch this code.
+Tokens auto-refresh when they expire.
 
 Usage:
-    from mymind import MyMind
-    mind = MyMind("you@email.com", "password")
+    from mymind_api import MyMind
+    mind = MyMind()
     cards = mind.get_all_cards()
     mind.create_note("# Hello", title="My Note", tags=["idea"])
     mind.save_url("https://example.com")
 """
 
 import json
-import os
 import re
 import logging
 import requests
+import msgpack
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass, field
 
 log = logging.getLogger("mymind")
 
-CONFIG_DIR = Path.home() / ".mymind"
-CONFIG_PATH = CONFIG_DIR / "config.json"
 BASE_URL = "https://access.mymind.com"
+CONFIG_DIR = Path.home() / ".mymind"
+KEYRING_SERVICE = "mymind-api"
+
+
+# ── Keychain helpers ─────────────────────────────────────
+
+
+def _store_tokens(jwt: str, cid: str, authenticity_token: str):
+    """Save tokens to system keychain."""
+    import keyring
+    keyring.set_password(KEYRING_SERVICE, "jwt", jwt)
+    keyring.set_password(KEYRING_SERVICE, "cid", cid)
+    keyring.set_password(KEYRING_SERVICE, "authenticity_token", authenticity_token)
+
+
+def _load_tokens() -> Optional[dict]:
+    """Load tokens from system keychain. Returns None if not found."""
+    import keyring
+    jwt = keyring.get_password(KEYRING_SERVICE, "jwt")
+    cid = keyring.get_password(KEYRING_SERVICE, "cid")
+    token = keyring.get_password(KEYRING_SERVICE, "authenticity_token")
+    if jwt and cid and token:
+        return {"jwt": jwt, "cid": cid, "authenticity_token": token}
+    return None
+
+
+def _clear_tokens():
+    """Remove tokens from keychain."""
+    import keyring
+    for key in ("jwt", "cid", "authenticity_token"):
+        try:
+            keyring.delete_password(KEYRING_SERVICE, key)
+        except keyring.errors.PasswordDeleteError:
+            pass
 
 
 # ── Data ─────────────────────────────────────────────────
@@ -47,87 +81,95 @@ class Card:
     raw: dict = field(default_factory=dict, repr=False)
 
 
-# ── Token management ────────────────────────────────────
+# ── Browser login ────────────────────────────────────────
 
 
-def _extract_tokens(email: str, password: str) -> dict:
-    """Log into mymind via headless browser and extract session tokens."""
+def _read_multiline(prompt: str = "> ") -> str:
+    """Read multi-line paste from terminal. Stops on 2s of no input."""
+    import sys, select
+
+    print(prompt, end="", flush=True)
+    lines = []
     try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        import subprocess, sys
-        log.info("Installing playwright...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
-        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
-        from playwright.sync_api import sync_playwright
+        while True:
+            ready, _, _ = select.select([sys.stdin], [], [], 2.0)
+            if ready:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+                lines.append(line)
+            else:
+                # 2 seconds of silence = done pasting
+                if lines:
+                    break
+    except (EOFError, KeyboardInterrupt):
+        pass
+    return "\n".join(lines)
 
-    captured = {}
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
+def _parse_tokens(text: str) -> dict:
+    """Extract jwt, cid, and authenticity_token from cURL or raw headers."""
+    jwt = cid = authenticity_token = ""
 
-        def on_request(request):
-            if "cards.json" in request.url:
-                headers = request.headers
-                captured["authenticity_token"] = headers.get(
-                    "x-authenticity-token", ""
-                )
-                for part in headers.get("cookie", "").split(";"):
-                    part = part.strip()
-                    if part.startswith("_jwt="):
-                        captured["jwt"] = part[5:]
-                    elif part.startswith("_cid="):
-                        captured["cid"] = part[5:]
+    jwt_match = re.search(r'_jwt=([^\s;\'\"]+)', text)
+    if jwt_match:
+        jwt = jwt_match.group(1)
 
-        page = context.new_page()
-        page.on("request", on_request)
+    cid_match = re.search(r'_cid=([^\s;\'\"]+)', text)
+    if cid_match:
+        cid = cid_match.group(1)
 
-        page.goto("https://access.mymind.com/signin")
-        page.wait_for_load_state("networkidle")
+    # Raw headers: "x-authenticity-token\n<value>" (DevTools copy)
+    token_match = re.search(r'x-authenticity-token\s*\n\s*([^\s\n]+)', text, re.IGNORECASE)
+    if not token_match:
+        # cURL -H format: "x-authenticity-token: <value>"
+        token_match = re.search(r'x-authenticity-token[:\s]+([^\s\'\"]+)', text, re.IGNORECASE)
+    if token_match:
+        authenticity_token = token_match.group(1)
 
-        page.fill('input[type="email"], input[name="email"]', email)
-        page.fill('input[type="password"], input[name="password"]', password)
-        page.click('button[type="submit"]')
-
-        try:
-            page.wait_for_url("**/everything**", timeout=15000)
-            page.wait_for_timeout(3000)
-        except Exception:
-            page.wait_for_timeout(5000)
-
-        browser.close()
-
-    required = ("jwt", "cid", "authenticity_token")
-    if not all(k in captured for k in required):
-        missing = [k for k in required if k not in captured]
+    if not jwt or not cid or not authenticity_token:
+        missing = []
+        if not jwt:
+            missing.append("_jwt")
+        if not cid:
+            missing.append("_cid")
+        if not authenticity_token:
+            missing.append("x-authenticity-token")
         raise RuntimeError(
-            f"Login failed — could not capture: {missing}. "
-            "Check your email/password."
+            f"Could not find: {', '.join(missing)}. "
+            "Make sure you copied the full request headers for the 'cards' request."
         )
 
-    return captured
+    return {"jwt": jwt, "cid": cid, "authenticity_token": authenticity_token}
 
 
-def _save_config(email: str, password: str, tokens: dict):
-    """Save credentials + tokens to disk."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    data = {
-        "email": email,
-        "password": password,
-        "jwt": tokens["jwt"],
-        "cid": tokens["cid"],
-        "authenticity_token": tokens["authenticity_token"],
-    }
-    CONFIG_PATH.write_text(json.dumps(data, indent=2))
-    os.chmod(CONFIG_PATH, 0o600)
+def browser_login() -> dict:
+    """Open default browser to mymind, grab tokens from Network tab.
 
+    1. Opens mymind in your browser (Dia, Safari, Chrome, whatever)
+    2. You sign in with passkeys, Google, Apple
+    3. Open Network tab, refresh, click 'cards' request
+    4. Copy the request headers and paste here
 
-def _load_config() -> Optional[dict]:
-    """Load saved config, or None if missing."""
-    if not CONFIG_PATH.exists():
-        return None
-    return json.loads(CONFIG_PATH.read_text())
+    Returns:
+        Dict with jwt, cid, authenticity_token.
+    """
+    import webbrowser
+
+    webbrowser.open("https://access.mymind.com/signin")
+    print()
+    print("Sign in to mymind in your browser.")
+    print()
+    print("After you see your cards:")
+    print("  1. Open DevTools → Network tab  (Cmd+Option+I)")
+    print("  2. Refresh the page")
+    print("  3. Click the 'cards' request")
+    print("  4. Copy the request headers (select all → copy)")
+    print("  5. Paste here and wait 2 seconds:")
+    print()
+
+    text = _read_multiline()
+    return _parse_tokens(text)
 
 
 # ── Client ───────────────────────────────────────────────
@@ -136,56 +178,49 @@ def _load_config() -> Optional[dict]:
 class MyMind:
     """mymind API client with automatic token management.
 
-    Tokens are extracted on first use and auto-refreshed when they expire.
+    Tokens are loaded from the system keychain and auto-refreshed on expiry.
+    Run `mymind login` first to authenticate.
     """
 
-    def __init__(self, email: Optional[str] = None, password: Optional[str] = None):
-        """Initialize the client.
-
-        Args:
-            email: mymind account email. If omitted, loads from ~/.mymind/config.json
-            password: mymind account password. If omitted, loads from config.
-        """
-        config = _load_config()
-
-        if email and password:
-            self._email = email
-            self._password = password
-        elif config and "email" in config:
-            self._email = config["email"]
-            self._password = config["password"]
-        else:
+    def __init__(self):
+        tokens = _load_tokens()
+        if not tokens:
             raise ValueError(
-                "Provide email and password, or run: mymind login"
+                "Not logged in. Run: mymind login"
             )
-
-        # Try loading cached tokens
-        if config and config.get("jwt"):
-            self._jwt = config["jwt"]
-            self._cid = config["cid"]
-            self._authenticity_token = config["authenticity_token"]
-        else:
-            self._refresh_tokens()
-
-    def _refresh_tokens(self):
-        """Re-login and extract fresh tokens."""
-        log.info("Refreshing mymind tokens...")
-        tokens = _extract_tokens(self._email, self._password)
         self._jwt = tokens["jwt"]
         self._cid = tokens["cid"]
         self._authenticity_token = tokens["authenticity_token"]
-        _save_config(self._email, self._password, tokens)
-        log.info("Tokens refreshed and saved.")
+
+    def _refresh_tokens(self):
+        """Re-login via browser and store fresh tokens."""
+        log.info("Session expired, re-authenticating...")
+        tokens = browser_login()
+        self._jwt = tokens["jwt"]
+        self._cid = tokens["cid"]
+        self._authenticity_token = tokens["authenticity_token"]
+        _store_tokens(**tokens)
+        log.info("Tokens refreshed.")
 
     def _headers(self) -> dict:
         return {
             "x-authenticity-token": self._authenticity_token,
             "cookie": f"_cid={self._cid}; _jwt={self._jwt}",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
         }
 
     def _headers_json(self) -> dict:
         h = self._headers()
         h["Content-Type"] = "application/json"
+        h["accept"] = "application/json"
+        return h
+
+    def _headers_msgpack(self) -> dict:
+        h = self._headers()
+        h["accept"] = "application/msgpack"
         return h
 
     def _request(self, method: str, path: str, retry: bool = True, **kwargs) -> requests.Response:
@@ -199,7 +234,6 @@ class MyMind:
         if resp.status_code in (302, 401, 403) and retry:
             log.info("Got %d, refreshing tokens...", resp.status_code)
             self._refresh_tokens()
-            # Rebuild headers with new tokens
             if "Content-Type" in headers:
                 new_headers = self._headers_json()
             else:
@@ -208,7 +242,7 @@ class MyMind:
 
         if resp.status_code in (302, 401, 403):
             raise PermissionError(
-                "Auth failed even after token refresh. Check email/password."
+                "Auth failed even after token refresh. Run: mymind login"
             )
         resp.raise_for_status()
         return resp
@@ -217,21 +251,47 @@ class MyMind:
 
     def get_all_cards(self) -> List[Card]:
         """Fetch all cards, sorted newest-first."""
-        resp = self._request("GET", "/cards.json")
-        data = resp.json()
-        cards = [_parse_card(slug, raw) for slug, raw in data.items()]
-        cards.sort(key=lambda c: c.modified, reverse=True)
+        resp = self._request("GET", "/cards", headers=self._headers_msgpack())
+        unpacker = msgpack.Unpacker(raw=False)
+        unpacker.feed(resp.content)
+        cards = []
+        for item in unpacker:
+            raw = json.loads(item["json"]) if isinstance(item.get("json"), str) else item.get("json", {})
+            # Extract slug from html data-id or from raw
+            slug = raw.get("id", "")
+            if not slug and isinstance(item.get("html"), str):
+                m = re.search(r'data-id="([^"]+)"', item["html"])
+                if m:
+                    slug = m.group(1)
+            cards.append(_parse_card(slug, raw))
         return cards
 
-    def search(self, query: str) -> List[Card]:
-        """Search cards by title, description, or tag name."""
-        q = query.lower()
-        return [
-            c for c in self.get_all_cards()
-            if q in (c.title or "").lower()
-            or q in (c.description or "").lower()
-            or any(q in t.lower() for t in c.tags)
-        ]
+    def search(self, query: str) -> dict:
+        """Server-side full-text search."""
+        resp = self._request("GET", f"/search?q={query}", headers=self._headers_json())
+        return resp.json()
+
+    def get_object(self, card_id: str) -> dict:
+        """Get full object metadata (id, title, tags, spaces, notes, timestamps)."""
+        resp = self._request("GET", f"/objects/{card_id}", headers=self._headers_json())
+        return resp.json()
+
+    def get_card_content(self, card_id: str) -> dict:
+        """Get full card content (title, description, prose, source, tags)."""
+        resp = self._request("GET", f"/cards/{card_id}", headers=self._headers_json())
+        return resp.json()
+
+    def get_object_tags(self, card_id: str) -> list:
+        """Get tags for a specific card."""
+        resp = self._request("GET", f"/objects/{card_id}/tags", headers=self._headers_json())
+        return resp.json()
+
+    # ── Tags (global) ────────────────────────────────────
+
+    def get_tags(self) -> list:
+        """Get all tags sorted by usage count."""
+        resp = self._request("GET", "/tags", headers=self._headers_json())
+        return resp.json()
 
     # ── Create ───────────────────────────────────────────
 
@@ -268,26 +328,86 @@ class MyMind:
 
     # ── Update ───────────────────────────────────────────
 
-    def add_tag(self, slug: str, tag_name: str) -> None:
+    def update_object(self, card_id: str, updates: dict) -> dict:
+        """Update a card's properties (e.g. title)."""
+        resp = self._request(
+            "PATCH", f"/objects/{card_id}",
+            headers=self._headers_json(),
+            json=updates,
+        )
+        return resp.json()
+
+    def add_tag(self, card_id: str, tag_name: str) -> None:
         """Add a tag to a card."""
         self._request(
-            "POST", f"/objects/{slug}/tags",
+            "POST", f"/objects/{card_id}/tags",
+            headers=self._headers_json(),
+            json={"name": tag_name},
+        )
+
+    def remove_tag(self, card_id: str, tag_name: str) -> None:
+        """Remove a tag from a card."""
+        self._request(
+            "DELETE", f"/objects/{card_id}/tags",
             headers=self._headers_json(),
             json={"name": tag_name},
         )
 
     # ── Delete ───────────────────────────────────────────
 
-    def delete_card(self, slug: str) -> None:
-        """Delete a card by slug/id."""
-        self._request("DELETE", f"/objects/{slug}")
+    def delete_card(self, card_id: str) -> None:
+        """Delete a card by ID."""
+        self._request("DELETE", f"/objects/{card_id}")
+
+    # ── Spaces ───────────────────────────────────────────
+
+    def get_spaces(self) -> list:
+        """Get all spaces."""
+        resp = self._request("GET", "/spaces", headers=self._headers_json())
+        spaces = resp.json()
+        return [
+            {
+                "id": s["id"],
+                "name": s["name"],
+                "color": s.get("color", ""),
+                "query": s.get("query"),
+                "card_count": len(s.get("objects", [])),
+            }
+            for s in spaces
+        ]
+
+    def create_space(self, name: str, color: str = "#fdf06f") -> dict:
+        """Create a manual space."""
+        resp = self._request(
+            "POST", "/spaces",
+            headers=self._headers_json(),
+            json={"name": name, "color": color},
+        )
+        return resp.json()
+
+    def create_smart_space(self, name: str, filters: List[str], color: str = "#fdf06f") -> dict:
+        """Create a smart space with auto-populating query filters."""
+        resp = self._request(
+            "POST", "/spaces",
+            headers=self._headers_json(),
+            json={
+                "name": name,
+                "color": color,
+                "query": {"filters": filters},
+            },
+        )
+        return resp.json()
+
+    def delete_space(self, space_id: str) -> None:
+        """Delete a space."""
+        self._request("DELETE", f"/spaces/{space_id}")
 
     # ── Utilities ────────────────────────────────────────
 
     def test_connection(self) -> bool:
         """Test if connection works (refreshes tokens if needed)."""
         try:
-            self._request("GET", "/cards.json")
+            self._request("GET", "/cards", headers=self._headers_msgpack())
             return True
         except Exception:
             return False
@@ -461,10 +581,8 @@ def main():
     )
     sub = parser.add_subparsers(dest="command")
 
-    login_p = sub.add_parser("login", help="Save your mymind credentials")
-    login_p.add_argument("--email", help="mymind email")
-    login_p.add_argument("--password", help="mymind password")
-
+    sub.add_parser("login", help="Open browser to sign in to mymind")
+    sub.add_parser("logout", help="Remove saved tokens")
     sub.add_parser("test", help="Test your connection")
     sub.add_parser("list", help="List all cards")
 
@@ -490,16 +608,14 @@ def main():
     args = parser.parse_args()
 
     if args.command == "login":
-        email = args.email or input("mymind email: ").strip()
-        password = args.password
-        if not password:
-            import getpass
-            password = getpass.getpass("mymind password: ")
+        print("Opening browser — sign in to your mymind account...")
+        tokens = browser_login()
+        _store_tokens(**tokens)
+        print("Logged in! Tokens saved to system keychain.")
 
-        print("Logging in...")
-        tokens = _extract_tokens(email, password)
-        _save_config(email, password, tokens)
-        print("Logged in and tokens saved to ~/.mymind/config.json")
+    elif args.command == "logout":
+        _clear_tokens()
+        print("Tokens removed from keychain.")
 
     elif args.command == "test":
         mind = MyMind()

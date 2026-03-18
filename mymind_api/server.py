@@ -1,21 +1,12 @@
 """
-mymind MCP Server — exposes your mymind as tools for Claude and other LLMs.
+mymind MCP Server — full mymind management for Claude Code.
 
 Install: pip install mymind-api
 Run:     mymind-mcp
-
-Or add to Claude Desktop config:
-{
-    "mcpServers": {
-        "mymind": {
-            "command": "mymind-mcp"
-        }
-    }
-}
 """
 
 from fastmcp import FastMCP
-from mymind_api.client import MyMind, Card
+from mymind_api.client import MyMind
 from typing import Optional, List
 
 mcp = FastMCP("mymind")
@@ -30,50 +21,73 @@ def _get_client() -> MyMind:
     return _client
 
 
-def _card_to_dict(card: Card) -> dict:
-    return {
-        "slug": card.slug,
-        "title": card.title,
-        "description": card.description,
-        "domain": card.domain,
-        "source_url": card.source_url,
-        "tags": card.tags,
-        "created": card.created,
-        "modified": card.modified,
-        "type": card.card_type,
-        "content": card.prose_markdown,
-        "notes": card.note_markdown,
-    }
+# ── Search & Browse ──────────────────────────────────────
 
 
 @mcp.tool
-def search_mymind(query: str) -> list:
-    """Search your mymind cards by title, description, or tags.
+def search_mymind(query: str) -> dict:
+    """Full-text search across all mymind cards using mymind's server-side search.
 
     Args:
-        query: Search term to match against card titles, descriptions, and tags.
+        query: Search term. Supports wildcards (e.g. "AI*").
 
     Returns:
-        List of matching cards with their content and metadata.
+        Search results with card details.
     """
     mind = _get_client()
-    cards = mind.search(query)
-    return [_card_to_dict(c) for c in cards]
+    return mind.search(query)
 
 
 @mcp.tool
 def list_recent_cards(limit: int = 20) -> list:
-    """List your most recent mymind cards.
+    """List most recently saved/modified mymind cards.
 
     Args:
-        limit: Max number of cards to return (default 20).
-
-    Returns:
-        List of recent cards sorted newest-first.
+        limit: Max cards to return (default 20).
     """
     mind = _get_client()
     cards = mind.get_all_cards()[:limit]
-    return [_card_to_dict(c) for c in cards]
+    return [
+        {
+            "id": c.slug,
+            "title": c.title,
+            "type": c.card_type,
+            "description": c.description,
+            "tags": c.tags,
+            "source_url": c.source_url,
+            "created": c.created,
+            "modified": c.modified,
+        }
+        for c in cards
+    ]
+
+
+# ── Card Details ─────────────────────────────────────────
+
+
+@mcp.tool
+def get_card(card_id: str) -> dict:
+    """Get full details of a specific card including all metadata.
+
+    Args:
+        card_id: The card's ID/slug.
+    """
+    mind = _get_client()
+    return mind.get_object(card_id)
+
+
+@mcp.tool
+def get_card_content(card_id: str) -> dict:
+    """Get the full content of a card — title, description, prose, notes, tags, source.
+
+    Args:
+        card_id: The card's ID/slug.
+    """
+    mind = _get_client()
+    return mind.get_card_content(card_id)
+
+
+# ── Create ───────────────────────────────────────────────
 
 
 @mcp.tool
@@ -82,11 +96,8 @@ def create_note(content: str, title: str = "", tags: Optional[List[str]] = None)
 
     Args:
         content: Markdown content for the note body.
-        title: Optional title for the note.
-        tags: Optional list of tags to attach (e.g. ["idea", "startup"]).
-
-    Returns:
-        Created card metadata including id and type.
+        title: Optional title.
+        tags: Optional list of tags (e.g. ["idea", "startup"]).
     """
     mind = _get_client()
     return mind.create_note(content, title=title, tags=tags)
@@ -94,33 +105,32 @@ def create_note(content: str, title: str = "", tags: Optional[List[str]] = None)
 
 @mcp.tool
 def save_url(url: str, tags: Optional[List[str]] = None) -> dict:
-    """Save a URL/bookmark to mymind.
+    """Save a URL/bookmark to mymind. mymind will extract title, description, and image.
 
     Args:
-        url: The URL to save. mymind will extract title, description, and image.
-        tags: Optional list of tags to attach.
-
-    Returns:
-        Created card metadata including id and type.
+        url: The URL to save.
+        tags: Optional list of tags.
     """
     mind = _get_client()
     return mind.save_url(url, tags=tags)
 
 
+# ── Update Cards ─────────────────────────────────────────
+
+
 @mcp.tool
-def add_tag(card_id: str, tag_name: str) -> str:
-    """Add a tag to an existing mymind card.
+def update_card(card_id: str, title: Optional[str] = None) -> dict:
+    """Update a card's title.
 
     Args:
-        card_id: The slug/id of the card to tag.
-        tag_name: The tag name to add.
-
-    Returns:
-        Confirmation message.
+        card_id: The card's ID/slug.
+        title: New title for the card.
     """
     mind = _get_client()
-    mind.add_tag(card_id, tag_name)
-    return f"Tagged '{card_id}' with '{tag_name}'"
+    updates = {}
+    if title is not None:
+        updates["title"] = title
+    return mind.update_object(card_id, updates)
 
 
 @mcp.tool
@@ -128,14 +138,115 @@ def delete_card(card_id: str) -> str:
     """Delete a card from mymind.
 
     Args:
-        card_id: The slug/id of the card to delete.
-
-    Returns:
-        Confirmation message.
+        card_id: The card's ID/slug.
     """
     mind = _get_client()
     mind.delete_card(card_id)
     return f"Deleted card '{card_id}'"
+
+
+# ── Tags ─────────────────────────────────────────────────
+
+
+@mcp.tool
+def list_tags(limit: int = 50) -> list:
+    """List all tags in mymind, sorted by usage count.
+
+    Args:
+        limit: Max tags to return (default 50).
+    """
+    mind = _get_client()
+    return mind.get_tags()[:limit]
+
+
+@mcp.tool
+def get_card_tags(card_id: str) -> list:
+    """Get all tags on a specific card.
+
+    Args:
+        card_id: The card's ID/slug.
+    """
+    mind = _get_client()
+    return mind.get_object_tags(card_id)
+
+
+@mcp.tool
+def add_tag(card_id: str, tag_name: str) -> str:
+    """Add a tag to a card.
+
+    Args:
+        card_id: The card's ID/slug.
+        tag_name: Tag name to add.
+    """
+    mind = _get_client()
+    mind.add_tag(card_id, tag_name)
+    return f"Added tag '{tag_name}' to card '{card_id}'"
+
+
+@mcp.tool
+def remove_tag(card_id: str, tag_name: str) -> str:
+    """Remove a tag from a card.
+
+    Args:
+        card_id: The card's ID/slug.
+        tag_name: Tag name to remove.
+    """
+    mind = _get_client()
+    mind.remove_tag(card_id, tag_name)
+    return f"Removed tag '{tag_name}' from card '{card_id}'"
+
+
+# ── Spaces ───────────────────────────────────────────────
+
+
+@mcp.tool
+def list_spaces() -> list:
+    """List all spaces (collections) in mymind."""
+    mind = _get_client()
+    return mind.get_spaces()
+
+
+@mcp.tool
+def create_space(name: str, color: str = "#fdf06f") -> dict:
+    """Create a new space (manual collection).
+
+    Args:
+        name: Space name.
+        color: Hex color (default yellow).
+    """
+    mind = _get_client()
+    return mind.create_space(name, color=color)
+
+
+@mcp.tool
+def create_smart_space(name: str, filters: List[str], color: str = "#fdf06f") -> dict:
+    """Create a smart space with auto-populating filters.
+
+    Filters use mymind's query syntax:
+    - Text search: "design" or "AI tools"
+    - Type filter: "type:webpage", "type:image", "type:video", "type:note"
+    - Combine with ||: "design || branding"
+    - Multiple filters are AND-ed together
+
+    Args:
+        name: Space name.
+        filters: List of filter strings (e.g. ["design", "type:webpage"]).
+        color: Hex color (default yellow).
+    """
+    mind = _get_client()
+    return mind.create_smart_space(name, filters, color=color)
+
+
+@mcp.tool
+def delete_space(space_id: str) -> str:
+    """Delete a space.
+
+    Args:
+        space_id: The space's ID.
+    """
+    mind = _get_client()
+    mind.delete_space(space_id)
+    return f"Deleted space '{space_id}'"
 
 
 def main():
