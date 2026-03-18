@@ -64,11 +64,11 @@ def search_mymind(
        "found 4 that match." Do NOT backfill with tools, studios, techniques,
        or tangentially related content to hit the number.
 
-    6. IMAGES: Search results are lightweight — no image URLs. When you need
-       to use a card (embed in Notion, write to a doc, etc.), call
-       get_card_content() which includes image_url. Use that URL directly
-       for embedding. Do NOT use get_card_image() unless you need to
-       visually inspect the image — that loads bytes and burns tokens.
+    6. IMAGES: Before writing cards anywhere (Notion, docs, etc.), call
+       get_card_image_urls() with all final card IDs in one batch. Use
+       the returned URLs as external image embeds. Do NOT use
+       get_card_image() unless you need to visually inspect the image —
+       that loads bytes and burns tokens.
 
     Args:
         query: Text search across titles, descriptions, and content.
@@ -167,36 +167,35 @@ def get_card(card_id: str) -> dict:
 def get_card_content(card_id: str) -> dict:
     """Get the full content of a card — title, description, prose, notes, tags, source.
 
-    Includes image_url for embedding in Notion or other tools without loading
-    image bytes into context.
-
     Args:
         card_id: The card's ID/slug.
     """
     mind = _get_client()
-    content = mind.get_card_content(card_id)
-    image_url = mind.get_card_image_url(card_id)
-    if image_url:
-        content["image_url"] = image_url
-    return content
+    return mind.get_card_content(card_id)
 
 
 @mcp.tool
-def get_card_image_url(card_id: str) -> dict:
-    """Get the URL for a card's image. Returns a link you can embed in Notion,
-    docs, or anywhere else — without loading image bytes into context.
+def get_card_image_urls(card_ids: List[str]) -> list:
+    """REQUIRED STEP before writing mymind cards anywhere (Notion, docs, etc.).
 
-    Use this instead of get_card_image when you need to embed/reference an image
-    rather than visually inspect it.
+    Call this with all your final card IDs right before you write/embed them.
+    Returns the image URL for each card — use these URLs directly as external
+    image embeds. One batch call, not one per card.
+
+    This does NOT load image bytes into context. It returns URL strings only.
 
     Args:
-        card_id: The card's ID/slug.
+        card_ids: List of card ID/slugs to get image URLs for.
     """
     mind = _get_client()
-    url = mind.get_card_image_url(card_id)
-    if not url:
-        return {"error": f"Card '{card_id}' has no image."}
-    return {"card_id": card_id, "image_url": url}
+    results = []
+    for card_id in card_ids:
+        url = mind.get_card_image_url(card_id)
+        results.append({
+            "card_id": card_id,
+            "image_url": url or "",
+        })
+    return results
 
 
 @mcp.tool
