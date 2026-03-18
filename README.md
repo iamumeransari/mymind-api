@@ -52,6 +52,10 @@ results = mind.search("startup ideas")
 mind.filter_cards(tag="design", domain="x.com")
 mind.filter_cards(card_type="Snippet", text="quote")
 
+# Images
+image_bytes = mind.get_card_image(card_id)        # raw bytes (webp)
+image_url = mind.get_card_image_url(card_id)      # authenticated URL
+
 # Create
 mind.create_note("# Hello", title="My Note", tags=["idea"])
 mind.save_url("https://example.com", tags=["reading"])
@@ -118,6 +122,7 @@ Or Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.j
 | `list_recent_cards` | List most recently saved cards |
 | `get_card` | Get full card metadata |
 | `get_card_content` | Get card content (prose, notes, tags, source) |
+| `get_card_image` | Get a card's image so the LLM can see it |
 | `create_note` | Create a note with markdown content |
 | `save_url` | Save a URL/bookmark |
 | `update_card` | Update a card's title |
@@ -130,6 +135,16 @@ Or Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.j
 | `create_space` | Create a manual space |
 | `create_smart_space` | Create a smart space with filters |
 | `delete_space` | Delete a space |
+
+## Syncing with Obsidian
+
+You can use this API to move cards between mymind and Obsidian. A few conventions that help:
+
+- **mymind → Obsidian:** Tag imported notes with `mymind` in Obsidian so you know where they came from. When tagging, use your Obsidian vault's existing tag taxonomy — not the tags from mymind. mymind's tags are AI-generated and tend to be noisy, while your Obsidian tags are a curated system built to create specific connections and clusters. Let your vault's structure dictate how the content gets organized.
+
+- **Obsidian → mymind:** Tag imported cards with `obsidian` in mymind so you can filter them later.
+
+This keeps both systems clean and makes it easy to trace where content originated.
 
 ## Disclaimer
 
