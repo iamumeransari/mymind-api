@@ -64,10 +64,11 @@ def search_mymind(
        "found 4 that match." Do NOT backfill with tools, studios, techniques,
        or tangentially related content to hit the number.
 
-    6. IMAGES: Every result includes image_url (just a URL string, not bytes).
-       Use it directly for embedding in Notion, docs, etc. Do NOT use
-       get_card_image() unless you need to visually inspect the image — that
-       loads bytes into context and burns tokens.
+    6. IMAGES: Search results are lightweight — no image URLs. When you need
+       to use a card (embed in Notion, write to a doc, etc.), call
+       get_card_content() which includes image_url. Use that URL directly
+       for embedding. Do NOT use get_card_image() unless you need to
+       visually inspect the image — that loads bytes and burns tokens.
 
     Args:
         query: Text search across titles, descriptions, and content.
@@ -107,8 +108,8 @@ def search_mymind(
 
 
 def _format_results(cards: list) -> list:
-    """Format card results. Always includes image_url when available — it's
-    just a URL string (negligible tokens) and needed for embedding in Notion etc."""
+    """Format card results for search. Lightweight — no image URLs here.
+    Image URLs come from get_card_content() when you're ready to use a card."""
     return [
         {
             "id": c.slug,
@@ -117,7 +118,6 @@ def _format_results(cards: list) -> list:
             "description": c.description,
             "tags": c.tags,
             "source_url": c.source_url,
-            "image_url": c.image_url,
             "created": c.created,
             "modified": c.modified,
         }
