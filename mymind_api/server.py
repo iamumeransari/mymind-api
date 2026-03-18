@@ -37,20 +37,38 @@ def search_mymind(
     """Search and filter mymind cards. Combines server-side text search with client-side
     tag/domain/type filtering. All provided filters are AND-ed together.
 
-    SEARCH STRATEGY:
-    1. Use tags as the primary filter. Call `list_tags()` first if unsure which
-       tags exist. Comma-separated tags are AND-ed (card must have ALL of them).
-       Avoid card_type filtering — content comes in many forms (YouTubeVideo,
-       XPost, WebPage, etc.) so card_type will miss things. Tags are the signal.
-    2. After getting results, SCAN THE TITLES. Only include cards whose title
-       confirms it is exactly what was requested. Drop everything else.
-    3. NEVER PAD RESULTS. If the user asks for 10 but only 4 match, return 4.
-       Do NOT backfill with loosely related cards to hit the number.
+    SEARCH STRATEGY — FOLLOW THIS EXACTLY:
+
+    1. TAGS FIRST. Always start with tag-based search. Call `list_tags()` first
+       to see what tags exist. Tags may be concatenated (e.g. "productlaunch"
+       not "product launch") — check for both forms. Comma-separated tags are
+       AND-ed. Avoid card_type filtering — content comes in many forms.
+
+    2. USE SHORT VARIED QUERIES. Don't search one long phrase. Use 2-3 short
+       queries with different terms: "product video", "launch video", "feature
+       video" — not "product launch video announcement demo". Also search by
+       tag separately from query — the tag index and text index behave
+       differently and surface different cards.
+
+    3. TITLES ARE UNRELIABLE FOR DISCOVERY. Cards saved from social posts
+       often have the first line of the post as the title (e.g. "Hey folks!"),
+       not a descriptive name. Tags and description are more reliable signals
+       than titles for finding cards. But titles ARE useful for judging
+       relevance once you have results.
+
+    4. JUDGE RELEVANCE BY TITLE + DESCRIPTION. After collecting results, read
+       each card's title and description. Only include cards that are exactly
+       what the user asked for. Drop everything else — no "related" filler.
+
+    5. NEVER PAD. If the user asks for 10 but only 4 match, return 4. Say
+       "found 4 that match." Do NOT backfill with tools, studios, techniques,
+       or tangentially related content to hit the number.
 
     Args:
         query: Text search across titles, descriptions, and content.
         tag: Filter by tag name(s). Case-insensitive. Comma-separated for multiple
-            (e.g. "startup, launch") — card must have ALL listed tags.
+            (e.g. "startup, launch") — card must have ALL listed tags. Tags may
+            be concatenated in mymind (e.g. "productlaunch" not "product launch").
         domain: Filter by source domain (e.g. "x.com", "youtube.com", "github.com").
         card_type: Filter by content type (WebPage, Image, XPost, Article,
             YouTubeVideo, InstagramReel, Video, Note, Snippet, Quotation,
