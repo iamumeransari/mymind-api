@@ -248,13 +248,25 @@ def delete_card(card_id: str) -> str:
 
 @mcp.tool
 def list_tags(limit: int = 50) -> list:
-    """List all tags in mymind, sorted by usage count.
+    """List all tags in mymind (both AI-generated and custom), sorted by usage count.
 
     Args:
         limit: Max tags to return (default 50).
     """
     mind = _get_client()
     return mind.get_tags()[:limit]
+
+
+@mcp.tool
+def list_custom_tags() -> list:
+    """List only user-created (custom) tags, excluding AI-generated ones.
+
+    Custom tags are the ones the user manually created — these are more intentional
+    and useful for organizing than the noisy AI-generated tags. Use these when you
+    need to understand how the user actually thinks about their content.
+    """
+    mind = _get_client()
+    return mind.get_custom_tags()
 
 
 @mcp.tool
@@ -302,6 +314,17 @@ def list_spaces() -> list:
     """List all spaces (collections) in mymind."""
     mind = _get_client()
     return mind.get_spaces()
+
+
+@mcp.tool
+def get_space_cards(space_id: str) -> list:
+    """Get all cards in a specific space.
+
+    Args:
+        space_id: The space's ID (get this from list_spaces).
+    """
+    mind = _get_client()
+    return mind.get_space_cards(space_id)
 
 
 @mcp.tool

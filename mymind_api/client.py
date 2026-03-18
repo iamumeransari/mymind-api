@@ -387,6 +387,15 @@ class MyMind:
         resp = self._request("GET", "/tags", headers=self._headers_json())
         return resp.json()
 
+    def get_custom_tags(self) -> list:
+        """Get only user-created (custom) tags, excluding AI-generated ones.
+
+        Custom tags are the ones you manually created — these tend to be
+        more intentional and useful for organizing than the AI-generated tags.
+        """
+        all_tags = self.get_tags()
+        return [t for t in all_tags if t.get("flags") == 8]
+
     # ── Create ───────────────────────────────────────────
 
     def create_note(self, content: str, title: str = "", tags: Optional[List[str]] = None) -> dict:
@@ -469,6 +478,37 @@ class MyMind:
             }
             for s in spaces
         ]
+
+    def get_space_cards(self, space_id: str) -> List[dict]:
+        """Get all cards in a specific space.
+
+        Args:
+            space_id: The space's ID.
+        """
+        resp = self._request("GET", f"/spaces/{space_id}", headers=self._headers_json())
+        space = resp.json()
+        card_ids = [obj["id"] for obj in space.get("objects", [])]
+        if not card_ids:
+            return []
+
+        # Hydrate with full card data
+        all_cards = self.get_all_cards()
+        card_map = {c.slug: c for c in all_cards}
+        results = []
+        for cid in card_ids:
+            c = card_map.get(cid)
+            if c:
+                results.append({
+                    "id": c.slug,
+                    "title": c.title,
+                    "type": c.card_type,
+                    "description": c.description,
+                    "tags": c.tags,
+                    "source_url": c.source_url,
+                    "created": c.created,
+                    "modified": c.modified,
+                })
+        return results
 
     def create_space(self, name: str, color: str = "#fdf06f") -> dict:
         """Create a manual space."""
