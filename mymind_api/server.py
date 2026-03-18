@@ -64,6 +64,11 @@ def search_mymind(
        "found 4 that match." Do NOT backfill with tools, studios, techniques,
        or tangentially related content to hit the number.
 
+    6. USE image_url FOR EMBEDS. Each result includes an image_url field.
+       When adding cards to Notion or other tools, use this URL directly as
+       an external image embed. Do NOT call get_card_image() to fetch image
+       bytes into the LLM context — that wastes tokens for no reason.
+
     Args:
         query: Text search across titles, descriptions, and content.
         tag: Filter by tag name(s). Case-insensitive. Comma-separated for multiple
@@ -94,6 +99,7 @@ def search_mymind(
                 "description": c.description,
                 "tags": c.tags,
                 "source_url": c.source_url,
+                "image_url": c.image_url,
                 "created": c.created,
                 "modified": c.modified,
             }
@@ -114,6 +120,7 @@ def search_mymind(
                 "description": c.description,
                 "tags": c.tags,
                 "source_url": c.source_url,
+                "image_url": c.image_url,
                 "created": c.created,
                 "modified": c.modified,
             }

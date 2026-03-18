@@ -78,6 +78,7 @@ class Card:
     card_type: str = ""
     prose_markdown: str = ""
     note_markdown: str = ""
+    image_url: str = ""
     raw: dict = field(default_factory=dict, repr=False)
 
 
@@ -566,6 +567,20 @@ def _parse_card(slug: str, raw: dict) -> Card:
     if note and note.get("prose", {}).get("content"):
         note_md = _prose_to_markdown(note["prose"]["content"])
 
+    # Build image URL from raw data (no extra API call)
+    image_url = ""
+    card_path = raw.get("path", "")
+    if card_path:
+        orig_w = raw.get("width", 1024)
+        orig_h = raw.get("height", 1024)
+        max_w = 1024
+        if orig_w > max_w:
+            h = int(orig_h * (max_w / orig_w))
+            w = max_w
+        else:
+            w, h = orig_w, orig_h
+        image_url = f"{BASE_URL}/media/{card_path};{w}x{h}.webp"
+
     return Card(
         slug=slug,
         title=raw.get("title", ""),
@@ -578,6 +593,7 @@ def _parse_card(slug: str, raw: dict) -> Card:
         card_type=raw.get("type", ""),
         prose_markdown=prose_md,
         note_markdown=note_md,
+        image_url=image_url,
         raw=raw,
     )
 
