@@ -332,6 +332,49 @@ class MyMind:
         resp = self._request("GET", f"/cards/{card_id}", headers=self._headers_json())
         return resp.json()
 
+    def _image_url(self, card_id: str, max_width: int = 1024) -> Optional[str]:
+        """Build the media URL for a card's image. Returns None if no image."""
+        content = self.get_card_content(card_id)
+        obj = content.get("object")
+        if not obj or not obj.get("path"):
+            return None
+
+        path = obj["path"]
+        orig_w = obj.get("width", max_width)
+        orig_h = obj.get("height", max_width)
+
+        if orig_w > max_width:
+            h = int(orig_h * (max_width / orig_w))
+            w = max_width
+        else:
+            w, h = orig_w, orig_h
+
+        return f"{BASE_URL}/media/{path};{w}x{h}.webp"
+
+    def get_card_image(self, card_id: str, max_width: int = 1024) -> Optional[bytes]:
+        """Get a card's image as bytes. Returns None if the card has no image.
+
+        Args:
+            card_id: The card's ID/slug.
+            max_width: Max image width in pixels (height scales proportionally). Default 1024.
+        """
+        url = self._image_url(card_id, max_width)
+        if not url:
+            return None
+        resp = requests.get(url, headers=self._headers(), timeout=30)
+        if resp.status_code == 200:
+            return resp.content
+        return None
+
+    def get_card_image_url(self, card_id: str, max_width: int = 1024) -> Optional[str]:
+        """Get the URL for a card's image. Returns None if the card has no image.
+
+        Args:
+            card_id: The card's ID/slug.
+            max_width: Max image width in pixels. Default 1024.
+        """
+        return self._image_url(card_id, max_width)
+
     def get_object_tags(self, card_id: str) -> list:
         """Get tags for a specific card."""
         resp = self._request("GET", f"/objects/{card_id}/tags", headers=self._headers_json())

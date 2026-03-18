@@ -5,7 +5,9 @@ Install: pip install mymind-api
 Run:     mymind-mcp
 """
 
+import base64
 from fastmcp import FastMCP
+from mcp.types import ImageContent, TextContent
 from mymind_api.client import MyMind
 from typing import Optional, List
 
@@ -153,6 +155,34 @@ def get_card_content(card_id: str) -> dict:
     """
     mind = _get_client()
     return mind.get_card_content(card_id)
+
+
+@mcp.tool
+def get_card_image(card_id: str) -> list:
+    """Get a card's image so you can see it. Returns the image inline along with card metadata.
+
+    Works for Image cards, webpage thumbnails, and any card with a visual.
+
+    Args:
+        card_id: The card's ID/slug.
+    """
+    mind = _get_client()
+    image_bytes = mind.get_card_image(card_id)
+    if not image_bytes:
+        return [TextContent(type="text", text=f"Card '{card_id}' has no image.")]
+
+    obj = mind.get_object(card_id)
+    return [
+        ImageContent(
+            type="image",
+            data=base64.b64encode(image_bytes).decode(),
+            mimeType="image/webp",
+        ),
+        TextContent(
+            type="text",
+            text=f"Title: {obj.get('title', '(untitled)')}\nTags: {', '.join(t['name'] for t in obj.get('tags', []))}"
+        ),
+    ]
 
 
 # ── Create ───────────────────────────────────────────────
