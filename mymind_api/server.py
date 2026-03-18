@@ -64,11 +64,9 @@ def search_mymind(
        "found 4 that match." Do NOT backfill with tools, studios, techniques,
        or tangentially related content to hit the number.
 
-    6. IMAGES: Before writing cards anywhere (Notion, docs, etc.), call
-       get_card_image_urls() with all final card IDs in one batch. Use
-       the returned URLs as external image embeds. Do NOT use
-       get_card_image() unless you need to visually inspect the image —
-       that loads bytes and burns tokens.
+    6. IMAGES: mymind images are auth-protected — no embeddable URLs
+       exist. Use source_url (the original tweet, article, video link)
+       when linking cards in Notion, docs, etc.
 
     7. ALWAYS STORE CARD IDs. When writing mymind cards to Notion, Obsidian,
        or anywhere else, always include the mymind card ID (the "id" field).
@@ -201,37 +199,10 @@ def get_card_content(card_id: str) -> dict:
 
 
 @mcp.tool
-def get_card_image_urls(card_ids: List[str]) -> list:
-    """REQUIRED STEP before writing mymind cards anywhere (Notion, docs, etc.).
-
-    Call this with all your final card IDs right before you write/embed them.
-    Returns the image URL for each card — use these URLs directly as external
-    image embeds. One batch call, not one per card.
-
-    This does NOT load image bytes into context. It returns URL strings only.
-
-    Args:
-        card_ids: List of card ID/slugs to get image URLs for.
-    """
-    mind = _get_client()
-    results = []
-    for card_id in card_ids:
-        url = mind.get_card_image_url(card_id)
-        results.append({
-            "card_id": card_id,
-            "image_url": url or "",
-        })
-    return results
-
-
-@mcp.tool
 def get_card_image(card_id: str) -> list:
-    """Load a card's image into context so the LLM can visually inspect it.
+    """Get a card's image so you can see it. Returns the image inline along with card metadata.
 
-    WARNING: This loads image bytes into the LLM context and costs tokens.
-    Only use when you need to actually SEE the image (e.g. for visual QA,
-    describing what's in an image, or retagging). For embedding images in
-    Notion or other tools, use get_card_image_url instead.
+    Works for Image cards, webpage thumbnails, and any card with a visual.
 
     Args:
         card_id: The card's ID/slug.

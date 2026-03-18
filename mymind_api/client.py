@@ -78,7 +78,6 @@ class Card:
     card_type: str = ""
     prose_markdown: str = ""
     note_markdown: str = ""
-    image_url: str = ""
     raw: dict = field(default_factory=dict, repr=False)
 
 
@@ -336,8 +335,17 @@ class MyMind:
         resp = self._request("GET", f"/cards/{card_id}", headers=self._headers_json())
         return resp.json()
 
-    def _image_url(self, card_id: str, max_width: int = 1024) -> Optional[str]:
-        """Build the media URL for a card's image. Returns None if no image."""
+    def get_card_image(self, card_id: str, max_width: int = 1024) -> Optional[bytes]:
+        """Get a card's image as bytes (authenticated). Returns None if no image.
+
+        mymind image URLs are auth-protected — they can't be used as external
+        embeds. This method fetches the bytes server-side with auth headers,
+        which can then be returned as base64 ImageContent to the LLM.
+
+        Args:
+            card_id: The card's ID/slug.
+            max_width: Max image width in pixels (height scales proportionally). Default 1024.
+        """
         content = self.get_card_content(card_id)
         obj = content.get("object")
         if not obj or not obj.get("path"):
@@ -353,31 +361,11 @@ class MyMind:
         else:
             w, h = orig_w, orig_h
 
-        return f"{BASE_URL}/media/{path};{w}x{h}.webp"
-
-    def get_card_image(self, card_id: str, max_width: int = 1024) -> Optional[bytes]:
-        """Get a card's image as bytes. Returns None if the card has no image.
-
-        Args:
-            card_id: The card's ID/slug.
-            max_width: Max image width in pixels (height scales proportionally). Default 1024.
-        """
-        url = self._image_url(card_id, max_width)
-        if not url:
-            return None
+        url = f"{BASE_URL}/media/{path};{w}x{h}.webp"
         resp = requests.get(url, headers=self._headers(), timeout=30)
         if resp.status_code == 200:
             return resp.content
         return None
-
-    def get_card_image_url(self, card_id: str, max_width: int = 1024) -> Optional[str]:
-        """Get the URL for a card's image. Returns None if the card has no image.
-
-        Args:
-            card_id: The card's ID/slug.
-            max_width: Max image width in pixels. Default 1024.
-        """
-        return self._image_url(card_id, max_width)
 
     def get_object_tags(self, card_id: str) -> list:
         """Get tags for a specific card."""
@@ -567,20 +555,6 @@ def _parse_card(slug: str, raw: dict) -> Card:
     if note and note.get("prose", {}).get("content"):
         note_md = _prose_to_markdown(note["prose"]["content"])
 
-    # Build image URL from raw data (no extra API call)
-    image_url = ""
-    card_path = raw.get("path", "")
-    if card_path:
-        orig_w = raw.get("width", 1024)
-        orig_h = raw.get("height", 1024)
-        max_w = 1024
-        if orig_w > max_w:
-            h = int(orig_h * (max_w / orig_w))
-            w = max_w
-        else:
-            w, h = orig_w, orig_h
-        image_url = f"{BASE_URL}/media/{card_path};{w}x{h}.webp"
-
     return Card(
         slug=slug,
         title=raw.get("title", ""),
@@ -593,7 +567,6 @@ def _parse_card(slug: str, raw: dict) -> Card:
         card_type=raw.get("type", ""),
         prose_markdown=prose_md,
         note_markdown=note_md,
-        image_url=image_url,
         raw=raw,
     )
 
