@@ -64,10 +64,11 @@ def search_mymind(
        "found 4 that match." Do NOT backfill with tools, studios, techniques,
        or tangentially related content to hit the number.
 
-    6. USE image_url FOR EMBEDS. Each result includes an image_url field.
-       When adding cards to Notion or other tools, use this URL directly as
-       an external image embed. Do NOT call get_card_image() to fetch image
-       bytes into the LLM context — that wastes tokens for no reason.
+    6. IMAGES: Search results do NOT include image URLs (to save tokens during
+       broad searches). Once you've identified the exact cards you need, call
+       get_card_content() or get_card_image_url() to get the image URL for
+       embedding in Notion etc. Do NOT use get_card_image() unless you need
+       the LLM to visually inspect the image.
 
     Args:
         query: Text search across titles, descriptions, and content.
@@ -99,7 +100,6 @@ def search_mymind(
                 "description": c.description,
                 "tags": c.tags,
                 "source_url": c.source_url,
-                "image_url": c.image_url,
                 "created": c.created,
                 "modified": c.modified,
             }
@@ -120,7 +120,6 @@ def search_mymind(
                 "description": c.description,
                 "tags": c.tags,
                 "source_url": c.source_url,
-                "image_url": c.image_url,
                 "created": c.created,
                 "modified": c.modified,
             }
@@ -186,11 +185,18 @@ def get_card(card_id: str) -> dict:
 def get_card_content(card_id: str) -> dict:
     """Get the full content of a card — title, description, prose, notes, tags, source.
 
+    Includes image_url for embedding in Notion or other tools without loading
+    image bytes into context.
+
     Args:
         card_id: The card's ID/slug.
     """
     mind = _get_client()
-    return mind.get_card_content(card_id)
+    content = mind.get_card_content(card_id)
+    image_url = mind.get_card_image_url(card_id)
+    if image_url:
+        content["image_url"] = image_url
+    return content
 
 
 @mcp.tool
