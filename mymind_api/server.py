@@ -42,16 +42,10 @@ def search_mymind(
        tags exist. Comma-separated tags are AND-ed (card must have ALL of them).
        Avoid card_type filtering — content comes in many forms (YouTubeVideo,
        XPost, WebPage, etc.) so card_type will miss things. Tags are the signal.
-    2. After getting results, SCAN THE TITLES. A card's title tells you whether
-       it's actually what the user asked for. Split results into two buckets:
-       - EXACT MATCHES: title confirms this is precisely what was requested.
-       - NEAR-MISSES: related and potentially useful, but not exactly the query.
-       Present exact matches first. If there are near-misses, list them
-       separately and ask the user if they want to include any.
-    3. NEVER PAD RESULTS. If the user asks for 10 but only 4 exactly match,
-       return the 4. Do NOT backfill with loosely related cards to hit the
-       number. Say "found 4 that match" and present the near-misses separately
-       as optional.
+    2. After getting results, SCAN THE TITLES. Only include cards whose title
+       confirms it is exactly what was requested. Drop everything else.
+    3. NEVER PAD RESULTS. If the user asks for 10 but only 4 match, return 4.
+       Do NOT backfill with loosely related cards to hit the number.
 
     Args:
         query: Text search across titles, descriptions, and content.
