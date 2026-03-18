@@ -64,11 +64,10 @@ def search_mymind(
        "found 4 that match." Do NOT backfill with tools, studios, techniques,
        or tangentially related content to hit the number.
 
-    6. IMAGES: image_url is automatically included in results when ≤15 cards
-       are returned (i.e. the search has been narrowed down). Broad searches
-       omit image URLs to save tokens. Use these URLs directly for embedding
-       in Notion, docs, etc. Do NOT use get_card_image() unless you need the
-       LLM to visually inspect the image — that loads bytes into context.
+    6. IMAGES: Every result includes image_url (just a URL string, not bytes).
+       Use it directly for embedding in Notion, docs, etc. Do NOT use
+       get_card_image() unless you need to visually inspect the image — that
+       loads bytes into context and burns tokens.
 
     Args:
         query: Text search across titles, descriptions, and content.
@@ -107,30 +106,23 @@ def search_mymind(
     return _format_results(cards)
 
 
-_IMAGE_URL_THRESHOLD = 15
-
-
 def _format_results(cards: list) -> list:
-    """Format card results. Includes image_url automatically when the result
-    set is small enough (≤15 cards) — meaning the search has been narrowed
-    down and image URLs are actionable. Broad searches omit them to save tokens."""
-    include_images = len(cards) <= _IMAGE_URL_THRESHOLD
-    results = []
-    for c in cards:
-        entry = {
+    """Format card results. Always includes image_url when available — it's
+    just a URL string (negligible tokens) and needed for embedding in Notion etc."""
+    return [
+        {
             "id": c.slug,
             "title": c.title,
             "type": c.card_type,
             "description": c.description,
             "tags": c.tags,
             "source_url": c.source_url,
+            "image_url": c.image_url,
             "created": c.created,
             "modified": c.modified,
         }
-        if include_images and c.image_url:
-            entry["image_url"] = c.image_url
-        results.append(entry)
-    return results
+        for c in cards
+    ]
 
 
 @mcp.tool
