@@ -194,10 +194,31 @@ def get_card_content(card_id: str) -> dict:
 
 
 @mcp.tool
-def get_card_image(card_id: str) -> list:
-    """Get a card's image so you can see it. Returns the image inline along with card metadata.
+def get_card_image_url(card_id: str) -> dict:
+    """Get the URL for a card's image. Returns a link you can embed in Notion,
+    docs, or anywhere else — without loading image bytes into context.
 
-    Works for Image cards, webpage thumbnails, and any card with a visual.
+    Use this instead of get_card_image when you need to embed/reference an image
+    rather than visually inspect it.
+
+    Args:
+        card_id: The card's ID/slug.
+    """
+    mind = _get_client()
+    url = mind.get_card_image_url(card_id)
+    if not url:
+        return {"error": f"Card '{card_id}' has no image."}
+    return {"card_id": card_id, "image_url": url}
+
+
+@mcp.tool
+def get_card_image(card_id: str) -> list:
+    """Load a card's image into context so the LLM can visually inspect it.
+
+    WARNING: This loads image bytes into the LLM context and costs tokens.
+    Only use when you need to actually SEE the image (e.g. for visual QA,
+    describing what's in an image, or retagging). For embedding images in
+    Notion or other tools, use get_card_image_url instead.
 
     Args:
         card_id: The card's ID/slug.
