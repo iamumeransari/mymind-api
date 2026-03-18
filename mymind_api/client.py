@@ -273,18 +273,19 @@ class MyMind:
 
     def filter_cards(
         self,
-        tag: Optional[str] = None,
+        tags: Optional[List[str]] = None,
         domain: Optional[str] = None,
         card_type: Optional[str] = None,
         text: Optional[str] = None,
         limit: int = 50,
     ) -> List[Card]:
-        """Filter cards client-side by tag, domain, type, and/or text content.
+        """Filter cards client-side by tags, domain, type, and/or text content.
 
-        All filters are AND-ed. Text matches against title, description, and prose.
+        All filters are AND-ed. Multiple tags are also AND-ed (card must have all).
+        Text matches against title, description, and prose.
 
         Args:
-            tag: Filter by tag name (case-insensitive).
+            tags: Filter by tag names (case-insensitive). Card must have ALL listed tags.
             domain: Filter by source domain (e.g. "x.com", "twitter.com").
             card_type: Filter by card type. Auto-assigned types include:
                 WebPage, Image, XPost, Article, YouTubeVideo, InstagramReel,
@@ -296,7 +297,7 @@ class MyMind:
         """
         cards = self.get_all_cards()
         results = []
-        tag_lower = tag.lower() if tag else None
+        tags_lower = [t.lower() for t in tags] if tags else None
         text_lower = text.lower() if text else None
         domain_lower = domain.lower() if domain else None
 
@@ -307,8 +308,10 @@ class MyMind:
             type_lower = type_aliases.get(type_lower, type_lower)
 
         for c in cards:
-            if tag_lower and not any(t.lower() == tag_lower for t in c.tags):
-                continue
+            if tags_lower:
+                card_tags_lower = [t.lower() for t in c.tags]
+                if not all(tl in card_tags_lower for tl in tags_lower):
+                    continue
             if domain_lower and domain_lower not in c.domain.lower() and domain_lower not in c.source_url.lower():
                 continue
             if type_lower and c.card_type.lower() != type_lower:

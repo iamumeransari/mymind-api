@@ -37,26 +37,38 @@ def search_mymind(
     """Search and filter mymind cards. Combines server-side text search with client-side
     tag/domain/type filtering. All provided filters are AND-ed together.
 
-    Always use this tool to find cards. Provide any combination of filters.
+    SEARCH STRATEGY:
+    1. Use tags as the primary filter. Call `list_tags()` first if unsure which
+       tags exist. Comma-separated tags are AND-ed (card must have ALL of them).
+       Avoid card_type filtering — content comes in many forms (YouTubeVideo,
+       XPost, WebPage, etc.) so card_type will miss things. Tags are the signal.
+    2. After getting results, SCAN THE TITLES. A card's title tells you whether
+       it's actually what the user asked for. Drop any card whose title doesn't
+       match the user's intent. A card tagged "launch" might be an animation
+       tool, not a launch video — the title makes this obvious. Only present
+       cards whose titles confirm they are exactly what was requested.
 
     Args:
-        query: Text search across titles, descriptions, and content (e.g. "AI", "startup ideas").
-        tag: Filter by tag name (e.g. "design", "AI", "motivation"). Case-insensitive.
+        query: Text search across titles, descriptions, and content.
+        tag: Filter by tag name(s). Case-insensitive. Comma-separated for multiple
+            (e.g. "startup, launch") — card must have ALL listed tags.
         domain: Filter by source domain (e.g. "x.com", "youtube.com", "github.com").
-        card_type: Filter by content type. mymind auto-assigns these based on what was saved:
-            WebPage, Image, XPost, Article, YouTubeVideo, InstagramReel,
-            Video, Note, Snippet (highlighted/clipped text from a page),
-            Quotation, RedditPost, Product, Post, Recipe, MusicRecording,
-            SoftwareApplication, Book, Movie, Document.
-            "Snippet" is an alias for Content — these are text snippets
-            the user highlighted and saved from web pages, tweets, etc.
+        card_type: Filter by content type (WebPage, Image, XPost, Article,
+            YouTubeVideo, InstagramReel, Video, Note, Snippet, Quotation,
+            RedditPost, Product, Post, Recipe, MusicRecording,
+            SoftwareApplication, Book, Movie, Document). Prefer tags over this.
         limit: Max results (default 50).
     """
     mind = _get_client()
 
+    # Parse comma-separated tags into a list
+    tags_list = None
+    if tag:
+        tags_list = [t.strip() for t in tag.split(",") if t.strip()]
+
     # If we have tag/domain/type filters, use client-side filtering (which also supports text)
-    if tag or domain or card_type:
-        cards = mind.filter_cards(tag=tag, domain=domain, card_type=card_type, text=query, limit=limit)
+    if tags_list or domain or card_type:
+        cards = mind.filter_cards(tags=tags_list, domain=domain, card_type=card_type, text=query, limit=limit)
         return [
             {
                 "id": c.slug,
