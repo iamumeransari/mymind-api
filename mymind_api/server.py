@@ -41,7 +41,13 @@ def search_mymind(
         query: Text search across titles, descriptions, and content (e.g. "AI", "startup ideas").
         tag: Filter by tag name (e.g. "design", "AI", "motivation"). Case-insensitive.
         domain: Filter by source domain (e.g. "x.com", "youtube.com", "github.com").
-        card_type: Filter by type (e.g. "XPost", "Note", "WebPage", "Video", "Image", "Content").
+        card_type: Filter by content type. mymind auto-assigns these based on what was saved:
+            WebPage, Image, XPost, Article, YouTubeVideo, InstagramReel,
+            Video, Note, Snippet (highlighted/clipped text from a page),
+            Quotation, RedditPost, Product, Post, Recipe, MusicRecording,
+            SoftwareApplication, Book, Movie, Document.
+            "Snippet" is an alias for Content — these are text snippets
+            the user highlighted and saved from web pages, tweets, etc.
         limit: Max results (default 50).
     """
     mind = _get_client()

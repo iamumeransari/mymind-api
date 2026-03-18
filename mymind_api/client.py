@@ -286,7 +286,11 @@ class MyMind:
         Args:
             tag: Filter by tag name (case-insensitive).
             domain: Filter by source domain (e.g. "x.com", "twitter.com").
-            card_type: Filter by card type (e.g. "XPost", "Note", "WebPage").
+            card_type: Filter by card type. Auto-assigned types include:
+                WebPage, Image, XPost, Article, YouTubeVideo, InstagramReel,
+                Video, Note, Snippet (alias for Content — clipped text from pages),
+                Quotation, RedditPost, Product, Post, Recipe,
+                MusicRecording, SoftwareApplication, Book, Movie, Document.
             text: Filter by text content in title/description/prose.
             limit: Max results to return.
         """
@@ -295,7 +299,12 @@ class MyMind:
         tag_lower = tag.lower() if tag else None
         text_lower = text.lower() if text else None
         domain_lower = domain.lower() if domain else None
+
+        # Normalize type aliases (mymind UI name -> API card_type)
+        type_aliases = {"snippet": "content", "snippets": "content"}
         type_lower = card_type.lower() if card_type else None
+        if type_lower:
+            type_lower = type_aliases.get(type_lower, type_lower)
 
         for c in cards:
             if tag_lower and not any(t.lower() == tag_lower for t in c.tags):
