@@ -347,7 +347,7 @@ class MyMind:
             max_width: Max image width in pixels (height scales proportionally). Default 1024.
         """
         content = self.get_card_content(card_id)
-        obj = content.get("object")
+        obj = content.get("blob")
         if not obj or not obj.get("path"):
             return None
 
